@@ -13,8 +13,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
 from config import Config
-from services.stock_api import StockAPIClient
-from services.agent import StockAnalysisAgent
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
