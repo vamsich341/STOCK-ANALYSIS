@@ -80,7 +80,7 @@ class MassiveAPIClient:
             percent_change = (change / prev_close) * 100
             
             return {
-                'symbol': ticker_upper,
+                'ticker': ticker_upper,
                 'company_name': demo['name'],
                 'price': price,
                 'previous_close': prev_close,
@@ -89,7 +89,7 @@ class MassiveAPIClient:
                 'low': round(price - random.uniform(0, 3), 2),
                 'volume': int(random.uniform(50000000, 150000000)),
                 'change': round(change, 2),
-                'percent_change': round(percent_change, 2),
+                'change_percent': round(percent_change, 2),
                 'currency': 'USD',
                 'timestamp': datetime.now().isoformat(),
                 '_demo_mode': True
@@ -134,7 +134,7 @@ class MassiveAPIClient:
             prev_close_val = float(prev_close)
             
             quote_data = {
-                'symbol': ticker.upper(),
+                'ticker': ticker.upper(),
                 'company_name': ticker.upper(),
                 'price': round(price, 2),
                 'previous_close': round(prev_close_val, 2),

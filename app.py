@@ -20,6 +20,10 @@ from services.agent import StockAnalysisAgent
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+from services.embeddings import EmbeddingsService
+from services.agent_tools import AgentToolkit
+from services.llm_agent import StockAnalysisAgent
 # Initialize Flask app
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.config.from_object(Config)
@@ -143,6 +147,33 @@ def create_user():
         return jsonify({'error': 'User already exists'}), 409
     except Exception as e:
         logger.error(f"Error creating user: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/users', methods=['GET'])
+def get_users():
+    """Get users - supports ?email= query parameter"""
+    email = request.args.get('email')
+    
+    if not email:
+        return jsonify({'error': 'Email parameter is required'}), 400
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT user_id, username, email, created_at, last_login, preferences FROM users WHERE email = %s",
+            (email,)
+        )
+        user = cursor.fetchone()
+        cursor.close()
+        
+        if user:
+            return jsonify(dict(user)), 200
+        else:
+            return jsonify({'error': 'User not found'}), 404
+    
+    except Exception as e:
+        logger.error(f"Error fetching user by email: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/users/<int:user_id>', methods=['GET'])
@@ -421,6 +452,130 @@ def get_stock_news(ticker):
 
 # ========== ANALYSIS ENDPOINTS ==========
 
+
+
+@app.route('/api/semantic-search', methods=['POST'])
+def semantic_search():
+    """
+    Semantic search across companies and news using embeddings
+    
+    Request body:
+    {
+        "query": "AI chip companies with strong earnings",
+        "search_type": "companies" | "news" | "both",
+        "limit": 10
+    }
+    """
+    try:
+        data = request.json
+        query = data.get('query', '')
+        search_type = data.get('search_type', 'both')
+        limit = min(int(data.get('limit', 10)), 50)
+        
+        if not query:
+            return jsonify({'error': 'Query is required'}), 400
+        
+        # Initialize embeddings service
+        embeddings_service = EmbeddingsService()
+        
+        # Generate embedding for the query
+        query_embedding = embeddings_service.generate_embedding(query)
+        
+        if not query_embedding:
+            return jsonify({'error': 'Failed to generate embedding for query'}), 500
+        
+        results = {}
+        
+        # Search companies
+        if search_type in ['companies', 'both']:
+            cursor = get_db_cursor()
+            try:
+                cursor.execute("""
+                    SELECT 
+                        ticker,
+                        name,
+                        description,
+                        sector,
+                        industry,
+                        market_cap,
+                        1 - (embedding <=> %s::vector) as similarity
+                    FROM companies
+                    WHERE embedding IS NOT NULL
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT %s
+                """, (query_embedding, query_embedding, limit))
+                
+                companies = []
+                for row in cursor.fetchall():
+                    companies.append({
+                        'ticker': row[0],
+                        'name': row[1],
+                        'description': row[2][:200] if row[2] else '',
+                        'sector': row[3],
+                        'industry': row[4],
+                        'market_cap': row[5],
+                        'similarity': float(row[6])
+                    })
+                
+                results['companies'] = companies
+                cursor.close()
+                
+            except Exception as e:
+                logger.error(f"Error searching companies: {e}")
+                results['companies'] = []
+        
+        # Search news
+        if search_type in ['news', 'both']:
+            cursor = get_db_cursor()
+            try:
+                cursor.execute("""
+                    SELECT 
+                        article_id,
+                        ticker,
+                        title,
+                        summary,
+                        url,
+                        source,
+                        published_at,
+                        sentiment_score,
+                        1 - (embedding <=> %s::vector) as similarity
+                    FROM news_articles
+                    WHERE embedding IS NOT NULL
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT %s
+                """, (query_embedding, query_embedding, limit))
+                
+                articles = []
+                for row in cursor.fetchall():
+                    articles.append({
+                        'article_id': row[0],
+                        'ticker': row[1],
+                        'title': row[2],
+                        'summary': row[3],
+                        'url': row[4],
+                        'source': row[5],
+                        'published_at': row[6].isoformat() if row[6] else None,
+                        'sentiment_score': float(row[7]) if row[7] else None,
+                        'similarity': float(row[8])
+                    })
+                
+                results['news'] = articles
+                cursor.close()
+                
+            except Exception as e:
+                logger.error(f"Error searching news: {e}")
+                results['news'] = []
+        
+        return jsonify({
+            'query': query,
+            'results': results,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    
+    except Exception as e:
+        logger.error(f"Error in semantic search: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/analysis/performance', methods=['POST'])
 def analyze_performance():
     """Analyze stock performance"""
@@ -607,6 +762,85 @@ def create_note():
     except Exception as e:
         logger.error(f"Error creating note: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# ========== LLM AGENT ENDPOINT ==========
+
+@app.route('/api/agent/query', methods=['POST'])
+def agent_query():
+    """
+    LLM Agent endpoint - Intelligent stock analysis with tool calling
+    
+    Request body:
+    {
+        "query": "What's AAPL's price and how has it performed?",
+        "user_id": 1,  # optional, for write operations
+        "conversation_history": []  # optional, for context
+    }
+    """
+    try:
+        data = request.json
+        query = data.get('query', '')
+        user_id = data.get('user_id')
+        conversation_history = data.get('conversation_history', [])
+        
+        if not query:
+            return jsonify({'error': 'Query is required'}), 400
+        
+        # Initialize agent components
+        massive_api_instance = MassiveAPI()
+        
+        # Try to get embeddings service (may not be available)
+        try:
+            embeddings_service_instance = EmbeddingsService()
+        except:
+            embeddings_service_instance = None
+        
+        # Create toolkit
+        toolkit = AgentToolkit(
+            db_connection=get_db,
+            massive_api=massive_api_instance,
+            embeddings_service=embeddings_service_instance
+        )
+        
+        # Create agent
+        agent = StockAnalysisAgent(toolkit)
+        
+        # Run agent
+        result = agent.run(
+            user_query=query,
+            user_id=user_id,
+            conversation_history=conversation_history
+        )
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f"Error in agent query: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/agent/capabilities', methods=['GET'])
+def agent_capabilities():
+    """Get agent capabilities and example queries"""
+    try:
+        # Create a dummy agent to get capabilities
+        toolkit = AgentToolkit(
+            db_connection=get_db,
+            massive_api=MassiveAPI(),
+            embeddings_service=None
+        )
+        agent = StockAnalysisAgent(toolkit)
+        
+        capabilities = agent.explain_capabilities()
+        return jsonify(capabilities)
+    
+    except Exception as e:
+        logger.error(f"Error getting capabilities: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     # Initialize database schema on first run
