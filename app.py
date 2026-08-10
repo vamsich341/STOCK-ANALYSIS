@@ -13,6 +13,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
 from config import Config
+from services.massive_api import MassiveAPIClient
 
 
 # Configure logging
