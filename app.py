@@ -13,7 +13,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from psycopg2 import pool
 from config import Config
-from services.massive_api import MassiveAPIClient
+from services.stock_api import StockAPIClient
 from services.agent import StockAnalysisAgent
 
 # Configure logging
@@ -48,7 +48,9 @@ except Exception as e:
 
 # Initialize services
 massive_client = MassiveAPIClient(Config.MASSIVE_API_KEY)
-analysis_agent = StockAnalysisAgent(massive_client)
+embeddings_service = EmbeddingsService(api_key=Config.OPENAI_API_KEY)
+toolkit = AgentToolkit(get_db_connection, massive_client, embeddings_service)
+analysis_agent = StockAnalysisAgent(toolkit, api_key=Config.OPENAI_API_KEY)
 
 # Database helper functions
 def get_db_connection():
@@ -788,7 +790,7 @@ def agent_query():
             return jsonify({'error': 'Query is required'}), 400
         
         # Initialize agent components
-        massive_api_instance = MassiveAPI()
+        stock_api_instance = StockAPIClient(alpha_vantage_key=Config.ALPHA_VANTAGE_API_KEY)
         
         # Try to get embeddings service (may not be available)
         try:
@@ -799,7 +801,7 @@ def agent_query():
         # Create toolkit
         toolkit = AgentToolkit(
             db_connection=get_db,
-            massive_api=massive_api_instance,
+            stock_api=stock_api_instance,
             embeddings_service=embeddings_service_instance
         )
         

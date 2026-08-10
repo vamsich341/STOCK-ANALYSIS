@@ -15,16 +15,16 @@ logger = logging.getLogger(__name__)
 class AgentToolkit:
     """Toolkit of tools available to the LLM agent"""
     
-    def __init__(self, db_connection, massive_api, embeddings_service=None):
+    def __init__(self, db_connection, stock_api, embeddings_service=None):
         """Initialize toolkit with required services
         
         Args:
             db_connection: Database connection function
-            massive_api: MassiveAPI instance for stock data
+            stock_api: StockAPIClient instance for stock data
             embeddings_service: EmbeddingsService instance (optional)
         """
         self.get_db = db_connection
-        self.api = massive_api
+        self.api = stock_api
         self.embeddings_service = embeddings_service
     
     # ========== READ TOOLS ==========

@@ -13,7 +13,12 @@ class Config:
     DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
     PORT = int(os.environ.get('PORT', 8000))
     
-    # Database configuration (Lakebase Postgres)
+        
+    # API Keys
+    ALPHA_VANTAGE_API_KEY = os.environ.get('ALPHA_VANTAGE_API_KEY', 'demo')  # Get free key at alphavantage.co
+    OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+    
+# Database configuration (Lakebase Postgres)
     DATABASE_URL = os.environ.get(
         'DATABASE_URL',
         'postgresql://ROOTUSER:npg_fsCrk8DWK3nj@ep-falling-thunder-d8fyunjf.database.us-east-2.cloud.databricks.com/databricks_postgres?sslmode=require'
