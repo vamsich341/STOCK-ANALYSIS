@@ -46,11 +46,7 @@ except Exception as e:
     logger.error(f"Failed to initialize database connection pool: {e}")
     connection_pool = None
 
-# Initialize services
-massive_client = MassiveAPIClient(Config.MASSIVE_API_KEY)
-embeddings_service = EmbeddingsService(api_key=Config.OPENAI_API_KEY)
-toolkit = AgentToolkit(get_db_connection, massive_client, embeddings_service)
-analysis_agent = StockAnalysisAgent(toolkit, api_key=Config.OPENAI_API_KEY)
+
 
 # Database helper functions
 def get_db_connection():
@@ -76,6 +72,12 @@ def close_db(error):
     db = g.pop('db', None)
     if db is not None:
         release_db_connection(db)
+
+# Initialize services
+massive_client = MassiveAPIClient(Config.MASSIVE_API_KEY)
+embeddings_service = EmbeddingsService(api_key=Config.OPENAI_API_KEY)
+toolkit = AgentToolkit(get_db_connection, massive_client, embeddings_service)
+analysis_agent = StockAnalysisAgent(toolkit, api_key=Config.OPENAI_API_KEY)
 
 # Error handlers
 @app.errorhandler(404)
