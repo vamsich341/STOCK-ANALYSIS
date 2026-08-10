@@ -36,9 +36,11 @@ class StockAnalysisAgent:
         logger.info(f"Analyzing performance for {ticker} over {days} days")
         
         # Fetch historical data
-        historical = self.massive_client.get_historical_data(ticker, days=days)
-        current_quote = self.massive_client.get_current_quote(ticker)
-        fundamentals = self.massive_client.get_company_fundamentals(ticker)
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        historical = self.massive_client.get_historical_data(ticker, start_date, end_date)
+        current_quote = self.massive_client.get_quote(ticker)
+        fundamentals = self.massive_client.get_company_info(ticker)
         
         if not historical or not current_quote:
             return {
@@ -108,14 +110,9 @@ Volume Analysis:
         # Add fundamental context if available
         if fundamentals:
             company_name = fundamentals.get('name', ticker)
-            sector = fundamentals.get('sector', 'Unknown')
-            market_cap = fundamentals.get('market_cap')
             
             detailed_analysis += f"\nCompany Context:\n"
             detailed_analysis += f"- Company: {company_name}\n"
-            detailed_analysis += f"- Sector: {sector}\n"
-            if market_cap:
-                detailed_analysis += f"- Market Cap: ${market_cap:,.0f}\n"
         
         # Key findings
         key_findings = [
@@ -237,8 +234,8 @@ Volume Analysis:
         """
         logger.info(f"Summarizing news for {ticker} from past {days} days")
         
-        # Fetch news
-        news_articles = self.massive_client.get_stock_news(ticker, limit=20)
+        # Fetch news - CORRECTED METHOD NAME
+        news_articles = self.massive_client.get_news(ticker, limit=20)
         
         if not news_articles:
             return {
@@ -300,7 +297,7 @@ Volume Analysis:
             'detailed_summary': detailed_summary,
             'article_count': article_count,
             'key_themes': key_themes,
-            'articles': recent_articles[:10],  # Return top 10
+            'articles': recent_articles[:10],
             'period_days': days,
             'timestamp': datetime.utcnow().isoformat()
         }
@@ -316,12 +313,12 @@ Volume Analysis:
         Returns:
             Alert if notable movement detected, None otherwise
         """
-        quote = self.massive_client.get_current_quote(ticker)
+        quote = self.massive_client.get_quote(ticker)
         
         if not quote:
             return None
         
-        change_pct = quote.get('change_percent', 0)
+        change_pct = quote.get('percent_change', 0)
         
         if abs(change_pct) >= threshold_pct:
             direction = "surged" if change_pct > 0 else "dropped"
@@ -353,36 +350,48 @@ Volume Analysis:
         # Gather data
         performance = self.analyze_performance(ticker, days=days)
         news_summary = self.summarize_news(ticker, days=min(days, 30))
-        fundamentals = self.massive_client.get_company_fundamentals(ticker)
         
-        # Build validation report
-        report = f"Thesis Validation for {ticker}\n\n"
-        report += f"Your Thesis: {thesis}\n\n"
+        if 'error' in performance:
+            return {
+                'error': 'Unable to validate thesis due to data fetch issues',
+                'ticker': ticker
+            }
         
-        if 'error' not in performance:
-            metrics = performance['metrics']
-            report += f"Recent Performance ({days} days):\n"
-            report += f"- Price change: {metrics['price_change_pct']:+.2f}%\n"
-            report += f"- Volatility: {metrics['volatility']:.2f}\n\n"
+        # Simple validation logic
+        price_change_pct = performance['metrics']['price_change_pct']
         
-        if fundamentals:
-            report += f"Company Fundamentals:\n"
-            if fundamentals.get('market_cap'):
-                report += f"- Market Cap: ${fundamentals['market_cap']:,.0f}\n"
-            if fundamentals.get('pe_ratio'):
-                report += f"- P/E Ratio: {fundamentals['pe_ratio']:.2f}\n"
-            report += "\n"
+        # Check if performance aligns with bullish/bearish thesis
+        is_bullish_thesis = any(word in thesis.lower() for word in ['buy', 'bull', 'growth', 'strong', 'positive'])
+        is_bearish_thesis = any(word in thesis.lower() for word in ['sell', 'bear', 'decline', 'weak', 'negative'])
         
-        if news_summary.get('article_count', 0) > 0:
-            report += f"Recent News Activity:\n"
-            report += f"- {news_summary['article_count']} articles in past {news_summary['period_days']} days\n"
-            if news_summary.get('key_themes'):
-                report += f"- Key themes: {', '.join(news_summary['key_themes'])}\n"
+        thesis_supported = False
+        confidence = "Low"
+        
+        if is_bullish_thesis and price_change_pct > 5:
+            thesis_supported = True
+            confidence = "High" if price_change_pct > 15 else "Moderate"
+        elif is_bearish_thesis and price_change_pct < -5:
+            thesis_supported = True
+            confidence = "High" if price_change_pct < -15 else "Moderate"
+        elif abs(price_change_pct) < 5:
+            confidence = "Neutral"
+        
+        # Generate validation report
+        validation_summary = f"Thesis Validation for {ticker}:\n\n"
+        validation_summary += f"Your Thesis: {thesis}\n\n"
+        validation_summary += f"Performance: {price_change_pct:+.2f}% over {days} days\n"
+        validation_summary += f"Thesis Support: {'Supported' if thesis_supported else 'Not supported'}\n"
+        validation_summary += f"Confidence: {confidence}\n\n"
+        
+        if news_summary.get('key_themes'):
+            validation_summary += f"Recent News Themes: {', '.join(news_summary['key_themes'])}\n"
         
         return {
             'ticker': ticker,
             'thesis': thesis,
-            'validation_report': report,
+            'validation_summary': validation_summary,
+            'thesis_supported': thesis_supported,
+            'confidence': confidence,
             'performance_data': performance,
             'news_data': news_summary,
             'timestamp': datetime.utcnow().isoformat()

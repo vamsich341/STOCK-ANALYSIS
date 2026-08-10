@@ -1,0 +1,23 @@
+# Databricks App Configuration for Stock Analysis Application
+
+command:
+  - gunicorn
+  - --bind
+  - 0.0.0.0:8000
+  - --workers
+  - "4"
+  - --timeout
+  - "120"
+  - app:app
+
+env:
+  - name: PORT
+    value: "8000"
+  - name: FLASK_ENV
+    value: production
+  - name: PYTHONUNBUFFERED
+    value: "1"
+# Allow public access without authentication
+default_ingress:
+  enabled: true
+  require_login: false

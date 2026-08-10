@@ -7,7 +7,7 @@ Provides RESTful API for stock watchlist management, real-time data, and AI-powe
 import os
 import logging
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, jsonify, g, send_from_directory
 from flask_cors import CORS
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize Flask app
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.config.from_object(Config)
 CORS(app)  # Enable CORS for all routes
 
@@ -79,6 +79,16 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
+
+# Root endpoint - Serve the frontend
+@app.route('/', methods=['GET'])
+def index():
+    """Serve the main web interface"""
+    try:
+        return send_from_directory('static', 'index.html')
+    except Exception as e:
+        logger.error(f"Error serving index.html: {e}")
+        return jsonify({'error': 'Frontend not available', 'details': str(e)}), 500
 
 # Health check endpoint
 @app.route('/health', methods=['GET'])
@@ -263,7 +273,7 @@ def add_ticker_to_watchlist(watchlist_id):
         company_id = None
         if not company:
             # Fetch company data from Massive API
-            company_data = massive_client.get_company_fundamentals(ticker)
+            company_data = massive_client.get_company_info(ticker)
             if company_data:
                 cursor.execute(
                     """INSERT INTO companies (ticker, name, exchange, sector, industry, market_cap, description, fundamentals) 
@@ -330,7 +340,7 @@ def remove_ticker_from_watchlist(watchlist_id, ticker):
 def get_stock_quote(ticker):
     """Get current stock quote"""
     try:
-        quote = massive_client.get_current_quote(ticker.upper())
+        quote = massive_client.get_quote(ticker.upper())
         if not quote:
             return jsonify({'error': 'Stock not found'}), 404
         return jsonify(quote), 200
@@ -344,7 +354,10 @@ def get_historical_data(ticker):
     days = request.args.get('days', 30, type=int)
     
     try:
-        historical = massive_client.get_historical_data(ticker.upper(), days=days)
+        # Calculate start and end dates
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        historical = massive_client.get_historical_data(ticker.upper(), start_date=start_date, end_date=end_date)
         if not historical:
             return jsonify({'error': 'No historical data available'}), 404
         return jsonify(historical), 200
@@ -373,7 +386,7 @@ def get_stock_news(ticker):
         
         # If not enough in DB, fetch from API
         if len(news) < limit:
-            api_news = massive_client.get_stock_news(ticker.upper(), limit=limit)
+            api_news = massive_client.get_news(ticker=ticker.upper(), limit=limit)
             
             # Store new articles in database
             if api_news:
