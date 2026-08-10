@@ -97,7 +97,7 @@ class MassiveAPIClient:
         return None
     
     def get_quote(self, ticker: str) -> Optional[Dict]:
-        """Get real-time quote for a stock"""
+        """Get real-time quote for a stock - tries Yahoo Finance first, demo data as fallback"""
         cache_key = self._get_cache_key('quote', ticker)
         
         # Always check cache first
@@ -105,14 +105,7 @@ class MassiveAPIClient:
         if cached:
             return cached
         
-        # Try demo data first to avoid rate limits
-        demo_quote = self._get_demo_quote(ticker)
-        if demo_quote:
-            self._set_cache(cache_key, demo_quote)
-            logger.info(f"Using demo data for {ticker}: ${demo_quote['price']}")
-            return demo_quote
-        
-        # If not in demo list, try Yahoo Finance
+        # Try Yahoo Finance FIRST for real-time data
         try:
             self._rate_limit()
             
@@ -124,7 +117,13 @@ class MassiveAPIClient:
             hist = stock.history(period="5d")
             
             if hist.empty:
-                logger.warning(f"No data for {ticker}")
+                logger.warning(f"No data for {ticker} from Yahoo Finance")
+                # Fall back to demo data if available
+                demo_quote = self._get_demo_quote(ticker)
+                if demo_quote:
+                    self._set_cache(cache_key, demo_quote)
+                    logger.info(f"Falling back to demo data for {ticker}: ${demo_quote['price']}")
+                    return demo_quote
                 return None
             
             latest = hist.iloc[-1]
@@ -152,15 +151,23 @@ class MassiveAPIClient:
             quote_data['percent_change'] = round(percent_change, 2)
             
             self._set_cache(cache_key, quote_data)
-            logger.info(f"Fetched quote for {ticker}: ${price:.2f}")
+            logger.info(f"✓ Real-time quote from Yahoo Finance for {ticker}: ${price:.2f}")
             return quote_data
             
         except Exception as e:
-            logger.error(f"Error fetching quote for {ticker}: {e}")
+            logger.error(f"Error fetching quote for {ticker} from Yahoo Finance: {e}")
+            
+            # Fall back to demo data if available
+            demo_quote = self._get_demo_quote(ticker)
+            if demo_quote:
+                self._set_cache(cache_key, demo_quote)
+                logger.info(f"API failed, using demo data for {ticker}: ${demo_quote['price']}")
+                return demo_quote
             
             # Return stale cache if available
             if cache_key in self._cache:
                 _, data = self._cache[cache_key]
+                logger.info(f"Returning stale cache for {ticker}")
                 return data
             
             return None
