@@ -97,6 +97,72 @@ class MassiveAPIClient:
             }
         return None
     
+    def _fetch_yahoo_direct(self, ticker: str) -> Optional[Dict]:
+        """Fetch quote directly from Yahoo Finance API (backup method)"""
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=5d"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            
+            if response.status_code != 200:
+                logger.warning(f"Yahoo direct API returned status {response.status_code} for {ticker}")
+                return None
+            
+            data = response.json()
+            
+            if 'chart' not in data or 'result' not in data['chart'] or not data['chart']['result']:
+                logger.warning(f"Invalid data structure from Yahoo API for {ticker}")
+                return None
+            
+            result = data['chart']['result'][0]
+            meta = result.get('meta', {})
+            quotes = result.get('indicators', {}).get('quote', [{}])[0]
+            timestamps = result.get('timestamp', [])
+            
+            if not timestamps:
+                return None
+            
+            # Get latest values
+            close = quotes.get('close', [])[-1] if quotes.get('close') else None
+            prev_close = meta.get('previousClose', close)
+            
+            if close is None:
+                return None
+            
+            price = float(close)
+            prev_close_val = float(prev_close) if prev_close else price
+            
+            quote_data = {
+                'ticker': ticker.upper(),
+                'company_name': meta.get('symbol', ticker.upper()),
+                'price': round(price, 2),
+                'previous_close': round(prev_close_val, 2),
+                'open': round(float(quotes.get('open', [price])[0] or price), 2),
+                'high': round(float(max([h for h in quotes.get('high', []) if h], default=price)), 2),
+                'low': round(float(min([l for l in quotes.get('low', []) if l], default=price)), 2),
+                'volume': int(sum([v for v in quotes.get('volume', []) if v], default=0)),
+                'currency': meta.get('currency', 'USD'),
+                'timestamp': datetime.now().isoformat(),
+                '_source': 'yahoo_direct'
+            }
+            
+            change = price - prev_close_val
+            percent_change = (change / prev_close_val) * 100 if prev_close_val else 0
+            quote_data['change'] = round(change, 2)
+            quote_data['percent_change'] = round(percent_change, 2)
+            
+            logger.info(f"✓ Fetched quote via direct Yahoo API for {ticker}: ${price:.2f}")
+            return quote_data
+            
+        except Exception as e:
+            logger.error(f"Direct Yahoo API failed for {ticker}: {e}")
+            return None
+    
     def get_quote(self, ticker: str) -> Optional[Dict]:
         """Get real-time quote for a stock - tries Yahoo Finance first, demo data as fallback"""
         cache_key = self._get_cache_key('quote', ticker)
@@ -119,13 +185,7 @@ class MassiveAPIClient:
             hist = stock.history(period="5d")
             
             if hist.empty:
-                logger.warning(f"No data for {ticker} from yfinance library")
-                # Try direct Yahoo API
-                logger.info(f"Attempting direct Yahoo API for {ticker}...")
-                direct_quote = self._fetch_yahoo_direct(ticker)
-                if direct_quote:
-                    self._set_cache(cache_key, direct_quote)
-                    return direct_quote
+                logger.warning(f"No data for {ticker} from Yahoo Finance")
                 # Fall back to demo data if available
                 demo_quote = self._get_demo_quote(ticker)
                 if demo_quote:
