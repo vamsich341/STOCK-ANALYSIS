@@ -4,6 +4,7 @@ Provides real-time and historical stock data with demo fallback
 """
 
 import yfinance as yf
+import requests
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -118,7 +119,13 @@ class MassiveAPIClient:
             hist = stock.history(period="5d")
             
             if hist.empty:
-                logger.warning(f"No data for {ticker} from Yahoo Finance")
+                logger.warning(f"No data for {ticker} from yfinance library")
+                # Try direct Yahoo API
+                logger.info(f"Attempting direct Yahoo API for {ticker}...")
+                direct_quote = self._fetch_yahoo_direct(ticker)
+                if direct_quote:
+                    self._set_cache(cache_key, direct_quote)
+                    return direct_quote
                 # Fall back to demo data if available
                 demo_quote = self._get_demo_quote(ticker)
                 if demo_quote:
@@ -156,13 +163,21 @@ class MassiveAPIClient:
             return quote_data
             
         except Exception as e:
-            logger.error(f"Error fetching quote for {ticker} from Yahoo Finance: {e}")
+            logger.error(f"yfinance library failed for {ticker}: {e}")
+            
+            # Try direct Yahoo API as backup
+            logger.info(f"Attempting direct Yahoo API for {ticker}...")
+            direct_quote = self._fetch_yahoo_direct(ticker)
+            if direct_quote:
+                self._set_cache(cache_key, direct_quote)
+                return direct_quote
             
             # Fall back to demo data if available
+            logger.info(f"Direct API also failed, checking demo data for {ticker}...")
             demo_quote = self._get_demo_quote(ticker)
             if demo_quote:
                 self._set_cache(cache_key, demo_quote)
-                logger.info(f"API failed, using demo data for {ticker}: ${demo_quote['price']}")
+                logger.info(f"Using demo data for {ticker}: ${demo_quote['price']}")
                 return demo_quote
             
             # Return stale cache if available
