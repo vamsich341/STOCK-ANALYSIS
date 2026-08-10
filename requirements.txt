@@ -1,0 +1,31 @@
+# Flask and Web Framework
+Flask==3.0.0
+flask-cors==4.0.0
+Werkzeug==3.0.1
+
+# Database
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.23
+
+# HTTP Requests
+requests==2.31.0
+urllib3==2.1.0
+
+# Data Processing
+numpy==1.26.2
+pandas==2.1.4
+
+# Utilities
+python-dotenv==1.0.0
+python-dateutil==2.8.2
+
+# Optional: For embeddings and semantic search (if using OpenAI)
+# openai==1.6.1
+# tiktoken==0.5.2
+
+# Optional: For production deployment
+gunicorn==21.2.0
+
+# Development
+pytest==7.4.3
+pytest-cov==4.1.0
