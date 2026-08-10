@@ -111,8 +111,9 @@ class MassiveAPIClient:
             
             stock = yf.Ticker(ticker)
             
-            # Set user agent to avoid blocks
-            stock.session.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            # Set user agent to avoid blocks (if session exists)
+            if hasattr(stock, 'session') and stock.session is not None:
+                stock.session.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             
             hist = stock.history(period="5d")
             
