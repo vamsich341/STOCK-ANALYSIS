@@ -30,14 +30,15 @@ DEMO_QUOTES = {
 class MassiveAPIClient:
     """Client for fetching stock data with robust fallback"""
     
-    def __init__(self, api_key: str = None, base_url: str = None):
-        """Initialize client with demo fallback"""
+    def __init__(self, api_key: str = None, base_url: str = None, db_pool=None):
+        """Initialize client with database-first approach"""
         self._cache = {}
         self._cache_ttl = 600  # 10 minutes
         self._last_request_time = 0
         self._min_request_interval = 2.0  # 2 seconds between requests
         self._use_demo_mode = False  # Will switch to true if Yahoo fails
-        logger.info("Stock API client initialized (Yahoo Finance with demo fallback)")
+        self._db_pool = db_pool  # Database connection pool
+        logger.info("Stock API client initialized (Database-first with Yahoo Finance fallback)")
     
     def _rate_limit(self):
         """Enforce rate limiting"""
@@ -164,7 +165,7 @@ class MassiveAPIClient:
             return None
     
     def get_quote(self, ticker: str) -> Optional[Dict]:
-        """Get real-time quote for a stock - tries Yahoo Finance first, demo data as fallback"""
+        """Get real-time quote - DATABASE FIRST (populated by hourly job), then fallbacks"""
         cache_key = self._get_cache_key('quote', ticker)
         
         # Always check cache first
@@ -172,7 +173,17 @@ class MassiveAPIClient:
         if cached:
             return cached
         
-        # Try Yahoo Finance FIRST for real-time data
+        # TRY DATABASE FIRST (primary source - no network restrictions!)
+        logger.info(f"Checking database for {ticker}...")
+        db_quote = self._get_from_database(ticker)
+        if db_quote:
+            logger.info(f"✅ Found {ticker} in database: ${db_quote['price']}")
+            self._set_cache(cache_key, db_quote)
+            return db_quote
+        
+        logger.warning(f"No database entry for {ticker}, trying Yahoo Finance...")
+        
+        # FALLBACK: Try Yahoo Finance (will fail in app due to network restrictions)
         try:
             self._rate_limit()
             
